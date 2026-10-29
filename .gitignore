@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Secrets: only .env.example is ever committed
+.env
+.env.*
+!.env.example
+*.pem
+*.key
