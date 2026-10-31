@@ -12,8 +12,8 @@ Copy `.env.example` to `.env` first. Tests need MongoDB on `127.0.0.1:27017` and
 
 ```bash
 npm run dev
-npm run build
-npm start
+npm run build && npm start
+npm run seed
 npm run lint
 npm run typecheck
 npm test
@@ -23,7 +23,7 @@ npm test
 
 `src/config` (env, db, session) · `src/models` · `src/controllers` · `src/routes` · `src/middleware` · `src/validators` · `src/services` (vendor clients).
 
-- Deny by default: `requireAuth` runs in `src/app.ts` before every route except signup, login and Google sign-in. Add new routes below it. A new public route needs an explicit reason.
+- Deny by default: `requireAuth` runs in `src/app.ts` before every route except signup, login and Google sign-in. Add new routes below it. A new public route needs an explicit reason. Admins are a separate `Admin` model with their own login and `/api/admin/*` routes behind `requireAdmin`; `requireSuperadmin` guards creating and deleting admins and changing credentials. API responses never include password hashes. `npm run seed` creates the one super admin from `SEED_SUPERADMIN_*` and changes nothing if one exists.
 - Passwords are bcrypt hashes (12 rounds). Sessions live in MongoDB in an HttpOnly cookie. Non-GET requests must come from `FRONTEND_ORIGIN`.
 - Google sign-in verifies the ID token on the server. Only a verified Google email is accepted; it removes any password on that email and ends its sessions.
 

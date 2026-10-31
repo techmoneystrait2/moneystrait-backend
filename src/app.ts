@@ -5,6 +5,7 @@ import { createSessionMiddleware } from './config/session';
 import { errorHandler, notFound } from './middleware/errorHandler';
 import { originCheck } from './middleware/originCheck';
 import { requireAuth } from './middleware/requireAuth';
+import { createAdminRoutes } from './routes/admin.routes';
 import { createProtectedAuthRoutes, createPublicAuthRoutes } from './routes/auth.routes';
 
 const DEFAULT_AUTH_LIMIT = 10;
@@ -19,6 +20,7 @@ export function createApp({ authLimit = DEFAULT_AUTH_LIMIT } = {}) {
   app.use(createSessionMiddleware());
 
   app.use('/api/auth', createPublicAuthRoutes(authLimit));
+  app.use('/api/admin', createAdminRoutes(authLimit));
 
   // Deny by default: everything below this line needs a valid session, including unknown paths.
   app.use(requireAuth);

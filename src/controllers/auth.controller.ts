@@ -1,14 +1,10 @@
-import bcrypt from 'bcrypt';
-import type { Request, RequestHandler } from 'express';
+import type { RequestHandler } from 'express';
 import { SESSION_COOKIE } from '../config/session';
 import { HttpError } from '../middleware/httpError';
 import { UserModel, type UserDocument } from '../models/user.model';
 import { type GoogleProfile, verifyGoogleCredential } from '../services/google.service';
-
-const BCRYPT_ROUNDS = 12;
-
-// Compared when no password exists, so response time doesn't reveal which emails have accounts.
-const DUMMY_HASH = bcrypt.hashSync('moneystrait-timing-placeholder', BCRYPT_ROUNDS);
+import { checkPassword, hashPassword } from '../services/password.service';
+import { endSession, startSession } from '../services/session.service';
 
 function isDuplicateKey(err: unknown): boolean {
   return (err as { code?: number }).code === 11000;
@@ -18,24 +14,16 @@ function toPublicUser(user: UserDocument) {
   return { id: user.id, name: user.name, email: user.email };
 }
 
-// A new session ID on every sign-in prevents session fixation.
-async function startSession(req: Request, user: UserDocument): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    req.session.regenerate((err) => (err ? reject(err) : resolve()));
-  });
-  req.session.userId = user.id;
-  req.session.sessionVersion = user.sessionVersion;
-  await new Promise<void>((resolve, reject) => {
-    req.session.save((err) => (err ? reject(err) : resolve()));
-  });
+function sessionFor(user: UserDocument) {
+  return { userId: user.id as string, sessionVersion: user.sessionVersion };
 }
 
 export const signup: RequestHandler = async (req, res) => {
   const { name, email, password } = req.body;
-  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const passwordHash = await hashPassword(password);
   try {
     const user = await UserModel.create({ name, email, passwordHash });
-    await startSession(req, user);
+    await startSession(req, sessionFor(user));
     res.status(201).json({ user: toPublicUser(user) });
   } catch (err) {
     if (isDuplicateKey(err)) throw new HttpError(409, 'Use a different email, or log in.');
@@ -46,11 +34,11 @@ export const signup: RequestHandler = async (req, res) => {
 export const login: RequestHandler = async (req, res) => {
   const { email, password } = req.body;
   const user = await UserModel.findOne({ email }).select('+passwordHash');
-  const matches = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
+  const matches = await checkPassword(password, user?.passwordHash);
   if (!user?.passwordHash || !matches) {
     throw new HttpError(401, 'Email or password is incorrect.');
   }
-  await startSession(req, user);
+  await startSession(req, sessionFor(user));
   res.json({ user: toPublicUser(user) });
 };
 
@@ -77,7 +65,7 @@ export const google: RequestHandler = async (req, res) => {
   const profile = await verifyGoogleCredential(req.body.credential);
   if (!profile?.emailVerified) throw new HttpError(401, 'Google sign-in failed.');
   const user = await findOrCreateGoogleUser(profile);
-  await startSession(req, user);
+  await startSession(req, sessionFor(user));
   res.json({ user: toPublicUser(user) });
 };
 
@@ -86,9 +74,7 @@ export const me: RequestHandler = (_req, res) => {
 };
 
 export const logout: RequestHandler = async (req, res) => {
-  await new Promise<void>((resolve, reject) => {
-    req.session.destroy((err) => (err ? reject(err) : resolve()));
-  });
+  await endSession(req);
   res.clearCookie(SESSION_COOKIE);
   res.status(204).end();
 };

@@ -1,0 +1,160 @@
+import type { RequestHandler } from 'express';
+import mongoose from 'mongoose';
+import { SESSION_COOKIE } from '../config/session';
+import { HttpError } from '../middleware/httpError';
+import { AdminModel, type AdminDocument } from '../models/admin.model';
+import { UserModel } from '../models/user.model';
+import { checkPassword, hashPassword } from '../services/password.service';
+import { endSession, saveSession, startSession } from '../services/session.service';
+
+const PAGE_SIZE = 20;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+function isDuplicateKey(err: unknown): boolean {
+  return (err as { code?: number }).code === 11000;
+}
+
+function toPublicAdmin(admin: AdminDocument) {
+  return {
+    id: admin.id,
+    username: admin.username,
+    role: admin.role,
+    createdAt: (admin as unknown as { createdAt: Date }).createdAt,
+  };
+}
+
+interface CustomerRow {
+  _id: unknown;
+  name: string;
+  email: string;
+  passwordHash?: string;
+  googleId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// The hash is read only to report how the customer signs in; it never leaves this function.
+function toCustomer(user: CustomerRow) {
+  return {
+    id: String(user._id),
+    name: user.name,
+    email: user.email,
+    signIn: user.googleId ? 'Google' : user.passwordHash ? 'Password' : 'None',
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
+}
+
+function findCustomers(filter: object) {
+  return UserModel.find(filter).select('+passwordHash').sort({ createdAt: -1 }).lean<CustomerRow[]>();
+}
+
+export const adminLogin: RequestHandler = async (req, res) => {
+  const { username, password } = req.body;
+  const admin = await AdminModel.findOne({ username }).select('+passwordHash');
+  const matches = await checkPassword(password, admin?.passwordHash);
+  if (!admin || !matches) throw new HttpError(401, 'Username or password is incorrect.');
+  await startSession(req, { adminId: admin.id, adminSessionVersion: admin.sessionVersion });
+  res.json({ admin: toPublicAdmin(admin) });
+};
+
+export const adminLogout: RequestHandler = async (req, res) => {
+  await endSession(req);
+  res.clearCookie(SESSION_COOKIE);
+  res.status(204).end();
+};
+
+export const adminMe: RequestHandler = (_req, res) => {
+  res.json({ admin: toPublicAdmin(res.locals.admin) });
+};
+
+export const overview: RequestHandler = async (_req, res) => {
+  const [customers, newThisWeek, passwordAccounts, googleAccounts, admins, activeSessions, recent] =
+    await Promise.all([
+      UserModel.countDocuments(),
+      UserModel.countDocuments({ createdAt: { $gte: new Date(Date.now() - WEEK_MS) } }),
+      UserModel.countDocuments({ passwordHash: { $exists: true } }),
+      UserModel.countDocuments({ googleId: { $exists: true } }),
+      AdminModel.countDocuments(),
+      mongoose.connection.collection('sessions').countDocuments(),
+      findCustomers({}).limit(5),
+    ]);
+  res.json({
+    stats: { customers, newThisWeek, passwordAccounts, googleAccounts, admins, activeSessions },
+    recentCustomers: recent.map(toCustomer),
+  });
+};
+
+export const listCustomers: RequestHandler = async (req, res) => {
+  const page = Math.max(1, Number.parseInt(String(req.query.page), 10) || 1);
+  const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 100) : '';
+  // Escaped, so a search is plain text and never a pattern.
+  const pattern = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const filter = pattern
+    ? { $or: [{ name: { $regex: pattern, $options: 'i' } }, { email: { $regex: pattern, $options: 'i' } }] }
+    : {};
+  const [total, customers] = await Promise.all([
+    UserModel.countDocuments(filter),
+    findCustomers(filter)
+      .skip((page - 1) * PAGE_SIZE)
+      .limit(PAGE_SIZE),
+  ]);
+  res.json({
+    customers: customers.map(toCustomer),
+    page,
+    pages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+    total,
+  });
+};
+
+export const listAdmins: RequestHandler = async (_req, res) => {
+  const admins = await AdminModel.find().sort({ createdAt: 1 });
+  res.json({ admins: admins.map(toPublicAdmin) });
+};
+
+export const createAdmin: RequestHandler = async (req, res) => {
+  const { username, password } = req.body;
+  try {
+    const admin = await AdminModel.create({
+      username,
+      passwordHash: await hashPassword(password),
+      role: 'admin',
+    });
+    res.status(201).json({ admin: toPublicAdmin(admin) });
+  } catch (err) {
+    if (isDuplicateKey(err)) throw new HttpError(409, 'That username is taken.');
+    throw err;
+  }
+};
+
+export const deleteAdmin: RequestHandler = async (req, res) => {
+  const id = String(req.params.id);
+  if (!mongoose.isValidObjectId(id)) throw new HttpError(404, 'Admin not found.');
+  const target = await AdminModel.findById(id);
+  if (!target) throw new HttpError(404, 'Admin not found.');
+  if (target.role !== 'admin') throw new HttpError(403, 'The super admin can’t be deleted.');
+  // Their sessions stop working because requireAdmin can no longer find the account.
+  await target.deleteOne();
+  res.status(204).end();
+};
+
+export const updateCredentials: RequestHandler = async (req, res) => {
+  const { currentPassword, username, password } = req.body;
+  const admin = await AdminModel.findById(res.locals.admin.id).select('+passwordHash');
+  if (!admin || !(await checkPassword(currentPassword, admin.passwordHash))) {
+    throw new HttpError(401, 'Your current password is incorrect.');
+  }
+  if (username) admin.username = username;
+  if (password) admin.passwordHash = await hashPassword(password);
+  // Ends the admin's other sessions; this one carries on with the new version.
+  admin.sessionVersion += 1;
+  try {
+    await admin.save();
+  } catch (err) {
+    if (isDuplicateKey(err)) throw new HttpError(409, 'That username is taken.');
+    throw err;
+  }
+  req.session.adminSessionVersion = admin.sessionVersion;
+  await saveSession(req);
+  res.json({ admin: toPublicAdmin(admin) });
+};
