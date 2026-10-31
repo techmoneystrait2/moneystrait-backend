@@ -25,7 +25,10 @@ export async function verifyGoogleCredential(credential: string): Promise<Google
       emailVerified: payload.email_verified === true,
       name: payload.name ?? payload.email,
     };
-  } catch {
+  } catch (err) {
+    // The text before any detail only: the rest can contain the token's personal data.
+    const reason = (err as Error).message.split(/[,:]/)[0]?.slice(0, 60);
+    console.warn(`Google token rejected: ${reason}`);
     return null;
   }
 }
