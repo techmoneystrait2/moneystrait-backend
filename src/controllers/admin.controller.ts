@@ -3,7 +3,10 @@ import mongoose from 'mongoose';
 import { SESSION_COOKIE } from '../config/session';
 import { HttpError } from '../middleware/httpError';
 import { AdminModel, type AdminDocument } from '../models/admin.model';
+import { ApplicationModel } from '../models/application.model';
+import { PasswordResetModel } from '../models/passwordReset.model';
 import { UserModel } from '../models/user.model';
+import { notifyAccountDeleted } from '../services/email.service';
 import { checkPassword, hashPassword } from '../services/password.service';
 import { endSession, saveSession, startSession } from '../services/session.service';
 
@@ -69,8 +72,9 @@ export const adminMe: RequestHandler = (_req, res) => {
 };
 
 export const overview: RequestHandler = async (_req, res) => {
-  const [customers, newThisWeek, passwordAccounts, googleAccounts, admins, activeSessions, recent] =
+  const [applicationsInReview, customers, newThisWeek, passwordAccounts, googleAccounts, admins, activeSessions, recent] =
     await Promise.all([
+      ApplicationModel.countDocuments({ status: 'in_review' }),
       UserModel.countDocuments(),
       UserModel.countDocuments({ createdAt: { $gte: new Date(Date.now() - WEEK_MS) } }),
       UserModel.countDocuments({ passwordHash: { $exists: true } }),
@@ -80,7 +84,7 @@ export const overview: RequestHandler = async (_req, res) => {
       findCustomers({}).limit(5),
     ]);
   res.json({
-    stats: { customers, newThisWeek, passwordAccounts, googleAccounts, admins, activeSessions },
+    stats: { applicationsInReview, customers, newThisWeek, passwordAccounts, googleAccounts, admins, activeSessions },
     recentCustomers: recent.map(toCustomer),
   });
 };
@@ -105,6 +109,27 @@ export const listCustomers: RequestHandler = async (req, res) => {
     pages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
     total,
   });
+};
+
+export const deleteCustomer: RequestHandler = async (req, res) => {
+  const admin: AdminDocument = res.locals.admin;
+  const id = String(req.params.id);
+  if (!mongoose.isValidObjectId(id)) throw new HttpError(404, 'Customer not found.');
+  const user = await UserModel.findById(id);
+  if (!user) throw new HttpError(404, 'Customer not found.');
+  const { name, email } = user;
+
+  // Applications stay for compliance, with a note of whose they were.
+  await ApplicationModel.updateMany({ user: id }, { deletedCustomer: { name, email } });
+  await ApplicationModel.updateMany(
+    { user: id, status: { $ne: 'removed' } },
+    { status: 'removed', removedAt: new Date(), removedBy: admin.username },
+  );
+  await PasswordResetModel.deleteMany({ user: id });
+  // Their sessions stop working because requireAuth can no longer find the account.
+  await user.deleteOne();
+
+  res.json({ emailSent: await notifyAccountDeleted(email) });
 };
 
 export const listAdmins: RequestHandler = async (_req, res) => {

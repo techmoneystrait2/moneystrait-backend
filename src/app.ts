@@ -6,6 +6,7 @@ import { errorHandler, notFound } from './middleware/errorHandler';
 import { originCheck } from './middleware/originCheck';
 import { requireAuth } from './middleware/requireAuth';
 import { createAdminRoutes } from './routes/admin.routes';
+import { createApplicationRoutes } from './routes/application.routes';
 import { createProtectedAuthRoutes, createPublicAuthRoutes } from './routes/auth.routes';
 
 const DEFAULT_AUTH_LIMIT = 10;
@@ -16,7 +17,7 @@ export function createApp({ authLimit = DEFAULT_AUTH_LIMIT } = {}) {
 
   app.use(helmet());
   app.use(originCheck);
-  app.use(express.json({ limit: '10kb' }));
+  app.use(express.json({ limit: '50kb' }));
   app.use(createSessionMiddleware());
 
   app.use('/api/auth', createPublicAuthRoutes(authLimit));
@@ -25,6 +26,7 @@ export function createApp({ authLimit = DEFAULT_AUTH_LIMIT } = {}) {
   // Deny by default: everything below this line needs a valid session, including unknown paths.
   app.use(requireAuth);
   app.use('/api/auth', createProtectedAuthRoutes());
+  app.use('/api/application', createApplicationRoutes(authLimit));
   app.use(notFound);
 
   app.use(errorHandler);

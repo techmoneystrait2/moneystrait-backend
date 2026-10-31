@@ -19,6 +19,14 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(200),
 });
 
+export const forgotPasswordSchema = z.object({ email });
+
+export const resetPasswordSchema = z.object({
+  email,
+  code: z.string().trim().regex(/^\d{6}$/),
+  password: newPassword,
+});
+
 export const googleSchema = z.object({
   credential: z.string().min(1).max(4096),
 });

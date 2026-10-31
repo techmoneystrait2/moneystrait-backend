@@ -6,6 +6,8 @@ export function validateBody(schema: ZodType): RequestHandler {
     const result = schema.safeParse(req.body);
     if (!result.success) {
       const fields = [...new Set(result.error.issues.map((issue) => issue.path.join('.')))];
+      // Field names only: values must never reach the logs.
+      console.warn(`Validation failed on ${req.path}: ${fields.join(', ')}`);
       res.status(400).json({ error: 'Check your details and try again.', fields });
       return;
     }
