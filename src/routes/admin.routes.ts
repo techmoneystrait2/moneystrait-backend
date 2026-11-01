@@ -16,6 +16,7 @@ import {
   approveApplication,
   askForInformation,
   deleteApplicationForever,
+  deleteRfi,
   getApplication,
   listApplications,
   rejectApplication,
@@ -52,6 +53,7 @@ export function createAdminRoutes(authLimit: number): Router {
   router.post('/applications/:id/rfis', validateBody(rfiQuestionSchema), askForInformation);
   router.post('/applications/:id/rfis/:rfiId/accept', acceptRfiResponse);
   router.post('/applications/:id/rfis/:rfiId/reject', rejectRfiResponse);
+  router.delete('/applications/:id/rfis/:rfiId', deleteRfi);
   router.delete('/applications/:id', removeApplication);
   router.post('/applications/:id/restore', restoreApplication);
   router.delete('/applications/:id/permanent', deleteApplicationForever);

@@ -123,6 +123,20 @@ function decideRfiResponse(decision: 'accepted' | 'rejected'): RequestHandler {
   };
 }
 
+// Erases the question and any answers to it, while the application is still in review.
+export const deleteRfi: RequestHandler = async (req, res) => {
+  const application = await findApplication(String(req.params.id));
+  const rfiId = String(req.params.rfiId);
+  if (!mongoose.isValidObjectId(rfiId)) throw new HttpError(404, 'Request not found.');
+  const objectId = new mongoose.Types.ObjectId(rfiId);
+  const result = await ApplicationModel.updateOne(
+    { _id: application.id, status: 'in_review', 'rfis._id': objectId },
+    { $pull: { rfis: { _id: objectId } } },
+  );
+  if (result.modifiedCount === 0) throw new HttpError(409, 'This question can’t be deleted.');
+  res.status(204).end();
+};
+
 export const acceptRfiResponse = decideRfiResponse('accepted');
 export const rejectRfiResponse = decideRfiResponse('rejected');
 

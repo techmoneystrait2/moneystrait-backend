@@ -30,6 +30,7 @@ function agent() {
   return {
     get: (path: string) => a.get(path),
     post: (path: string, body?: object) => a.post(path).set('Origin', ORIGIN).send(body),
+    delete: (path: string) => a.delete(path).set('Origin', ORIGIN),
   };
 }
 
@@ -262,6 +263,71 @@ describe('deciding a response', () => {
     expect((await c.post(`/api/admin/applications/${id}/rfis/${rfiId}/accept`)).status).toBe(401);
     expect((await a.post(`/api/admin/applications/${id}/rfis/not-an-id/accept`)).status).toBe(404);
     expect((await a.post(`/api/admin/applications/not-an-id/rfis/${rfiId}/accept`)).status).toBe(404);
+  });
+});
+
+describe('deleting a question', () => {
+  const remove = (a: Admin, id: string, rfiId: string) => a.delete(`/api/admin/applications/${id}/rfis/${rfiId}`);
+
+  it('removes an unanswered question for the customer, who can no longer answer it', async () => {
+    const id = await addApplication();
+    const a = await admin();
+    const c = await customer();
+    const rfiId = await ask(a, id);
+    expect((await remove(a, id, rfiId)).status).toBe(204);
+    expect((await c.get('/api/application')).body.application.rfis).toEqual([]);
+    expect((await answer(c, rfiId)).status).toBe(409);
+  });
+
+  it.each(['answered', 'accepted'])('removes an %s question and its answers', async (state) => {
+    const id = await addApplication();
+    const a = await admin();
+    const c = await customer();
+    const rfiId = await ask(a, id);
+    await answer(c, rfiId);
+    if (state === 'accepted') await a.post(`/api/admin/applications/${id}/rfis/${rfiId}/accept`);
+    expect((await remove(a, id, rfiId)).status).toBe(204);
+    expect((await ApplicationModel.findById(id))?.rfis).toHaveLength(0);
+  });
+
+  it('leaves other questions alone', async () => {
+    const id = await addApplication();
+    const a = await admin();
+    const first = await ask(a, id, 'First question?');
+    await ask(a, id, 'Second question?');
+    await remove(a, id, first);
+    const { rfis } = (await a.get(`/api/admin/applications/${id}`)).body.application;
+    expect(rfis.map((rfi: { question: string }) => rfi.question)).toEqual(['Second question?']);
+  });
+
+  it('unblocks approval', async () => {
+    const id = await addApplication();
+    const a = await admin();
+    const rfiId = await ask(a, id);
+    expect((await a.post(`/api/admin/applications/${id}/approve`)).status).toBe(409);
+    await remove(a, id, rfiId);
+    expect((await a.post(`/api/admin/applications/${id}/approve`)).status).toBe(200);
+  });
+
+  it('keeps questions once the application is decided', async () => {
+    const id = await addApplication();
+    const a = await admin();
+    const rfiId = await ask(a, id);
+    await a.post(`/api/admin/applications/${id}/reject`);
+    expect((await remove(a, id, rfiId)).status).toBe(409);
+    expect((await ApplicationModel.findById(id))?.rfis).toHaveLength(1);
+  });
+
+  it('needs an admin and real IDs', async () => {
+    const id = await addApplication();
+    const a = await admin();
+    const rfiId = await ask(a, id);
+    const c = await customer();
+    expect((await c.delete(`/api/admin/applications/${id}/rfis/${rfiId}`)).status).toBe(401);
+    expect((await agent().delete(`/api/admin/applications/${id}/rfis/${rfiId}`)).status).toBe(401);
+    expect((await remove(a, id, 'not-an-id')).status).toBe(404);
+    expect((await remove(a, id, String(new mongoose.Types.ObjectId()))).status).toBe(409);
+    expect((await ApplicationModel.findById(id))?.rfis).toHaveLength(1);
   });
 });
 
