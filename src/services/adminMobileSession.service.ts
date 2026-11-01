@@ -1,9 +1,10 @@
+import { ADMIN_SESSION_MS } from '../config/session';
 import { AdminModel, type AdminDocument } from '../models/admin.model';
 import { type AdminMobileSessionDocument, AdminMobileSessionModel } from '../models/adminMobileSession.model';
 import { hash, newTokens } from './mobileSession.service';
 
-// The same 60 minutes without activity as the website's admin session.
-const REFRESH_MS = 60 * 60 * 1000;
+// The same as the website: an admin stays logged in until they log out. Each refresh starts it again.
+const REFRESH_MS = ADMIN_SESSION_MS;
 
 export async function startAdminMobileSession(admin: AdminDocument) {
   const { tokens, stored } = newTokens(REFRESH_MS);

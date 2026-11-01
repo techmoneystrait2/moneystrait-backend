@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import mongoose from 'mongoose';
-import { SESSION_COOKIE } from '../config/session';
+import { ADMIN_COOKIE_PATH, ADMIN_SESSION_COOKIE } from '../config/session';
 import { HttpError } from '../middleware/httpError';
 import { AdminModel, type AdminDocument } from '../models/admin.model';
 import type { AdminMobileSessionDocument } from '../models/adminMobileSession.model';
@@ -98,7 +98,7 @@ export const adminLogout: RequestHandler = async (req, res) => {
     await endAdminMobileSession(session);
   } else {
     await endSession(req);
-    res.clearCookie(SESSION_COOKIE);
+    res.clearCookie(ADMIN_SESSION_COOKIE, { path: ADMIN_COOKIE_PATH });
   }
   res.status(204).end();
 };

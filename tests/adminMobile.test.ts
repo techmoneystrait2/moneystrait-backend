@@ -134,6 +134,52 @@ describe('admin on the mobile app', () => {
   });
 });
 
+describe('staying logged in', () => {
+  const daysLeft = (cookie: string) => (new Date(/Expires=([^;]+)/.exec(cookie)![1]!).getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+
+  const adminAgent = async () => {
+    const web = request.agent(app);
+    const res = await web.post('/api/admin/login').set('Origin', ORIGIN).send({ username: 'boss', password: PASSWORD });
+    return { web, cookie: String(res.headers['set-cookie']) };
+  };
+
+  it('gives admins their own long cookie, and customers keep 60 minutes', async () => {
+    const { cookie } = await adminAgent();
+    expect(cookie).toContain('ms.admin=');
+    expect(daysLeft(cookie)).toBeGreaterThan(399);
+    expect(cookie).toContain('Path=/api/admin');
+    expect(cookie).toContain('HttpOnly');
+    const customer = await request(app).post('/api/auth/signup').set('Origin', ORIGIN).send({ name: 'Pat Doe', email: 'pat@example.com', password: PASSWORD });
+    const customerCookie = String(customer.headers['set-cookie']);
+    expect(customerCookie).toContain('ms.sid=');
+    expect(daysLeft(customerCookie)).toBeLessThan(0.05);
+  });
+
+  it('keeps an admin logged in when a customer logs in and out in the same browser', async () => {
+    const { web } = await adminAgent();
+    await web.post('/api/auth/signup').set('Origin', ORIGIN).send({ name: 'Pat Doe', email: 'pat@example.com', password: PASSWORD });
+    expect((await web.get('/api/admin/me')).status).toBe(200);
+    expect((await web.get('/api/auth/me')).status).toBe(200);
+    await web.post('/api/auth/logout').set('Origin', ORIGIN).send({});
+    expect((await web.get('/api/auth/me')).status).toBe(401);
+    expect((await web.get('/api/admin/me')).status).toBe(200);
+  });
+
+  it('logs the admin out, and leaves a customer in the same browser logged in', async () => {
+    const { web } = await adminAgent();
+    await web.post('/api/auth/signup').set('Origin', ORIGIN).send({ name: 'Pat Doe', email: 'pat@example.com', password: PASSWORD });
+    expect((await web.post('/api/admin/logout').set('Origin', ORIGIN).send({})).status).toBe(204);
+    expect((await web.get('/api/admin/me')).status).toBe(401);
+    expect((await web.get('/api/auth/me')).status).toBe(200);
+  });
+
+  it('gives the app a long refresh, with no 60-minute limit', async () => {
+    await login();
+    const session = await AdminMobileSessionModel.findOne();
+    expect(session!.refreshExpiresAt.getTime()).toBeGreaterThan(Date.now() + 399 * 24 * 60 * 60 * 1000);
+  });
+});
+
 describe('customer details', () => {
   it('needs an admin', async () => {
     const user = await UserModel.create({ name: 'Pat Doe', email: 'pat@example.com' });
