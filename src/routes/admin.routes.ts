@@ -28,6 +28,7 @@ import {
   restoreApplication,
 } from '../controllers/adminApplication.controller';
 import { deleteLead, getLead, listLeads } from '../controllers/adminLead.controller';
+import { addCountries, listAdminCountries, removeCountries } from '../controllers/country.controller';
 import { notFound } from '../middleware/errorHandler';
 import { createAuthRateLimiter } from '../middleware/rateLimiter';
 import { requireAdmin, requireSuperadmin } from '../middleware/requireAdmin';
@@ -39,6 +40,7 @@ import {
 } from '../validators/admin.validators';
 import { rfiQuestionSchema } from '../validators/application.validators';
 import { refreshSchema } from '../validators/auth.validators';
+import { countryCodesSchema } from '../validators/country.validators';
 
 // The same admin sign-in for the mobile app, returning tokens instead of setting a cookie.
 export function createMobileAdminRoutes(authLimit: number): Router {
@@ -63,6 +65,9 @@ export function createAdminRoutes(authLimit: number): Router {
   router.get('/leads', listLeads);
   router.get('/leads/:id', getLead);
   router.delete('/leads/:id', deleteLead);
+  router.get('/countries', listAdminCountries);
+  router.post('/countries/remove', validateBody(countryCodesSchema), removeCountries);
+  router.post('/countries/add', validateBody(countryCodesSchema), addCountries);
   router.get('/admins', listAdmins);
   router.get('/applications', listApplications);
   router.get('/applications/:id', getApplication);

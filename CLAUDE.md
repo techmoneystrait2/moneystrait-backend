@@ -42,6 +42,10 @@ npm test
 - If a secret is ever committed, rotate it at once; deleting it from the code is not enough.
 - Add no CI, GitHub Actions, Docker or other DevOps files. The owner deploys the frontend to Vercel and the backend to Render.
 
+## Countries
+
+`src/config/paymentCountries.ts` is the catalogue of every country except the restricted ones. Each is live unless an admin removes it, which stores a `RemovedCountry`. `GET /api/countries` is public and read-only. It only drives the Countries page; the application's country lists are separate.
+
 ## Talk to us
 
 Built so far: the form saves a `Lead` through `POST /api/leads` (website) or `POST /api/mobile/leads` (app), both public on purpose, with the honeypot, the restricted list and 5 forms an hour per IP address. `submittedBy` is `customer` only when the session or token proves it, never from the form. Admins read, search by name or email, and delete leads at `/api/admin/leads`. Booking, CRM, Turnstile and the emails below are still to come.

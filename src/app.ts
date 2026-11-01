@@ -9,6 +9,7 @@ import { requireAuth } from './middleware/requireAuth';
 import { createAdminRoutes, createMobileAdminRoutes } from './routes/admin.routes';
 import { createApplicationRoutes } from './routes/application.routes';
 import { createMobileAuthRoutes, createProtectedAuthRoutes, createPublicAuthRoutes } from './routes/auth.routes';
+import { createCountryRoutes } from './routes/country.routes';
 import { createLeadRoutes, createMobileLeadRoutes } from './routes/lead.routes';
 
 const DEFAULT_AUTH_LIMIT = 10;
@@ -25,6 +26,8 @@ export function createApp({ authLimit = DEFAULT_AUTH_LIMIT, leadLimit = DEFAULT_
 
   app.use('/api/auth', createPublicAuthRoutes(authLimit));
   app.use('/api/mobile/auth', createMobileAuthRoutes(authLimit));
+
+  app.use('/api/countries', createCountryRoutes());
 
   const leadLimiter = createLeadRateLimiter(leadLimit);
   app.use('/api/leads', createLeadRoutes(leadLimiter));
