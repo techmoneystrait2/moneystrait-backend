@@ -34,6 +34,8 @@ export const changePasswordSchema = z.object({
   password: newPassword,
 });
 
+export const setPasswordSchema = z.object({ password: newPassword });
+
 export const refreshSchema = z.object({ refreshToken: z.string().min(1).max(200) });
 
 export const googleSchema = z.object({

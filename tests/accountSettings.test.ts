@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app';
 import { connectDb } from '../src/config/db';
 import { UserModel } from '../src/models/user.model';
+import { checkPassword } from '../src/services/password.service';
 import { hashPassword } from '../src/services/password.service';
 
 const ORIGIN = 'http://localhost:3000';
@@ -119,6 +120,30 @@ describe('password', () => {
 
   it('needs a login', async () => {
     expect((await agent().post('/api/auth/password', { currentPassword: PASSWORD, password: NEW_PASSWORD })).status).toBe(401);
+  });
+
+  it('lets a Google account set a password, then log in with it', async () => {
+    const c = await customer();
+    await UserModel.updateOne({ email: EMAIL }, { $unset: { passwordHash: 1 }, googleId: 'g-1' });
+    expect((await c.post('/api/auth/password/set').set('Origin', ORIGIN).send({ password: 'brand-new-pass' })).status).toBe(204);
+    expect((await c.get('/api/auth/me')).body.user.hasPassword).toBe(true);
+    const fresh = request.agent(app);
+    const login = await fresh.post('/api/auth/login').set('Origin', ORIGIN).send({ email: EMAIL, password: 'brand-new-pass' });
+    expect(login.status).toBe(200);
+  });
+
+  it('never lets set-password replace an existing password', async () => {
+    const c = await customer();
+    expect((await c.post('/api/auth/password/set').set('Origin', ORIGIN).send({ password: 'brand-new-pass' })).status).toBe(409);
+    const stored = await UserModel.findOne({ email: EMAIL }).select('+passwordHash');
+    expect(await checkPassword('brand-new-pass', stored?.passwordHash)).toBe(false);
+  });
+
+  it('refuses set-password when logged out or too short', async () => {
+    expect((await request(app).post('/api/auth/password/set').set('Origin', ORIGIN).send({ password: 'brand-new-pass' })).status).toBe(401);
+    const c = await customer();
+    await UserModel.updateOne({ email: EMAIL }, { $unset: { passwordHash: 1 }, googleId: 'g-1' });
+    expect((await c.post('/api/auth/password/set').set('Origin', ORIGIN).send({ password: 'short' })).status).toBe(400);
   });
 
   it('can’t add a password to a Google-only account', async () => {

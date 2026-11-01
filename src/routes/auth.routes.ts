@@ -9,6 +9,7 @@ import {
   mobileLogin,
   mobileRefresh,
   mobileSignup,
+  setPassword,
   signup,
   updateProfile,
 } from '../controllers/auth.controller';
@@ -23,6 +24,7 @@ import {
   profileSchema,
   refreshSchema,
   resetPasswordSchema,
+  setPasswordSchema,
   signupSchema,
 } from '../validators/auth.validators';
 
@@ -57,6 +59,8 @@ export function createProtectedAuthRoutes(authLimit: number): Router {
   router.get('/me', me);
   router.post('/logout', logout);
   router.patch('/profile', validateBody(profileSchema), updateProfile);
-  router.post('/password', createAuthRateLimiter(authLimit), validateBody(changePasswordSchema), changePassword);
+  const passwordLimiter = createAuthRateLimiter(authLimit);
+  router.post('/password', passwordLimiter, validateBody(changePasswordSchema), changePassword);
+  router.post('/password/set', passwordLimiter, validateBody(setPasswordSchema), setPassword);
   return router;
 }

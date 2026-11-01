@@ -6,8 +6,11 @@ import {
   createAdmin,
   deleteAdmin,
   deleteCustomer,
+  getCustomer,
   listAdmins,
   listCustomers,
+  mobileAdminLogin,
+  mobileAdminRefresh,
   overview,
   updateCredentials,
 } from '../controllers/admin.controller';
@@ -34,6 +37,16 @@ import {
   updateCredentialsSchema,
 } from '../validators/admin.validators';
 import { rfiQuestionSchema } from '../validators/application.validators';
+import { refreshSchema } from '../validators/auth.validators';
+
+// The same admin sign-in for the mobile app, returning tokens instead of setting a cookie.
+export function createMobileAdminRoutes(authLimit: number): Router {
+  const router = Router();
+  const limiter = createAuthRateLimiter(authLimit);
+  router.post('/login', limiter, validateBody(adminLoginSchema), mobileAdminLogin);
+  router.post('/refresh', limiter, validateBody(refreshSchema), mobileAdminRefresh);
+  return router;
+}
 
 export function createAdminRoutes(authLimit: number): Router {
   const router = Router();
@@ -45,6 +58,7 @@ export function createAdminRoutes(authLimit: number): Router {
   router.post('/logout', adminLogout);
   router.get('/overview', overview);
   router.get('/customers', listCustomers);
+  router.get('/customers/:id', getCustomer);
   router.get('/admins', listAdmins);
   router.get('/applications', listApplications);
   router.get('/applications/:id', getApplication);

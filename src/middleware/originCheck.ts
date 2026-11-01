@@ -5,9 +5,9 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 // Cookies are sent by the browser automatically, so cookie requests need this check. The app has
 // no cookie and no origin: its token is sent on purpose, which is what stops forged requests.
-// The admin panel is website-only, so it never skips the check.
+// The admin's website login has no token yet, so it never skips the check.
 function isAppRequest(req: Request): boolean {
-  if (req.path.startsWith('/api/admin')) return false;
+  if (req.path === '/api/admin/login') return false;
   return req.path.startsWith('/api/mobile/') || req.get('authorization') !== undefined;
 }
 

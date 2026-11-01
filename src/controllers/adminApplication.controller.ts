@@ -65,9 +65,7 @@ async function findApplication(id: string) {
   return application;
 }
 
-export const getApplication: RequestHandler = async (req, res) => {
-  const application = await findApplication(String(req.params.id));
-  const attempts = await ApplicationModel.countDocuments({ user: application.populated('user') });
+export function toApplicationDetail(application: ApplicationDocument) {
   const rfis = application.rfis.map((rfi) => ({
     id: String(rfi._id),
     question: rfi.question,
@@ -76,7 +74,13 @@ export const getApplication: RequestHandler = async (req, res) => {
     askedAt: rfi.askedAt,
     responses: rfi.responses,
   }));
-  res.json({ application: { ...summarise(application), answers: application.answers, attempts, rfis } });
+  return { ...summarise(application), answers: application.answers, rfis };
+}
+
+export const getApplication: RequestHandler = async (req, res) => {
+  const application = await findApplication(String(req.params.id));
+  const attempts = await ApplicationModel.countDocuments({ user: application.populated('user') });
+  res.json({ application: { ...toApplicationDetail(application), attempts } });
 };
 
 const OPEN_RFI = { $elemMatch: { status: { $in: ['waiting', 'answered'] } } };

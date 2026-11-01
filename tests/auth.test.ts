@@ -202,6 +202,15 @@ describe('Google sign-in', () => {
     expect(res.status).toBe(401);
   });
 
+  it('keeps a password set later when the customer logs in with Google again', async () => {
+    vi.mocked(verifyGoogleCredential).mockResolvedValue(googleProfile);
+    const a = agent();
+    await a.post('/api/auth/google', { credential: 'token' });
+    expect((await a.post('/api/auth/password/set', { password: 'set-in-settings' })).status).toBe(204);
+    expect((await agent().post('/api/auth/google', { credential: 'token' })).status).toBe(200);
+    expect((await agent().post('/api/auth/login', { email: googleProfile.email, password: 'set-in-settings' })).status).toBe(200);
+  });
+
   it('refuses a password login on a Google-only account', async () => {
     vi.mocked(verifyGoogleCredential).mockResolvedValue(googleProfile);
     await agent().post('/api/auth/google', { credential: 'token' });

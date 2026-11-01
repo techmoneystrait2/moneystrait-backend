@@ -3,7 +3,7 @@ import { type HydratedDocument, model, Schema } from 'mongoose';
 export interface User {
   name: string;
   email: string;
-  // bcrypt hash; absent on Google-only accounts.
+  // bcrypt hash; absent on Google accounts until the customer sets one in Settings.
   passwordHash?: string;
   googleId?: string;
   // Raised to end every existing session for this user.

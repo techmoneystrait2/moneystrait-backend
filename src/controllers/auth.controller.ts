@@ -115,17 +115,8 @@ export const updateProfile: RequestHandler = async (req, res) => {
   res.json({ user: toPublicUser(user) });
 };
 
-export const changePassword: RequestHandler = async (req, res) => {
-  const { currentPassword, password } = req.body;
-  const user = await UserModel.findById(res.locals.user.id).select('+passwordHash');
-  if (!user?.passwordHash || !(await checkPassword(currentPassword, user.passwordHash))) {
-    throw new HttpError(400, 'Your current password is incorrect.');
-  }
-  user.passwordHash = await hashPassword(password);
-  // Ends the customer's other sessions; this one carries on with the new version.
-  user.sessionVersion += 1;
-  await user.save();
-
+// Ends the customer's other sessions; this one carries on with the new version.
+async function keepOnlyThisSession(req: Request, res: Response, user: UserDocument): Promise<void> {
   const mobileSession = res.locals.mobileSession;
   await endAllMobileSessions(user.id, mobileSession);
   if (mobileSession) {
@@ -135,6 +126,31 @@ export const changePassword: RequestHandler = async (req, res) => {
     req.session.sessionVersion = user.sessionVersion;
     await saveSession(req);
   }
+}
+
+export const changePassword: RequestHandler = async (req, res) => {
+  const { currentPassword, password } = req.body;
+  const user = await UserModel.findById(res.locals.user.id).select('+passwordHash');
+  if (!user?.passwordHash || !(await checkPassword(currentPassword, user.passwordHash))) {
+    throw new HttpError(400, 'Your current password is incorrect.');
+  }
+  user.passwordHash = await hashPassword(password);
+  user.sessionVersion += 1;
+  await user.save();
+  await keepOnlyThisSession(req, res, user);
+  res.status(204).end();
+};
+
+// For Google accounts, which start with no password. Matches only while there is none, so this
+// can never replace a password without the current one.
+export const setPassword: RequestHandler = async (req, res) => {
+  const user = await UserModel.findOneAndUpdate(
+    { _id: res.locals.user.id, passwordHash: { $exists: false } },
+    { $set: { passwordHash: await hashPassword(req.body.password) }, $inc: { sessionVersion: 1 } },
+    { returnDocument: 'after' },
+  );
+  if (!user) throw new HttpError(409, 'You already have a password. Use your current password to change it.');
+  await keepOnlyThisSession(req, res, user);
   res.status(204).end();
 };
 

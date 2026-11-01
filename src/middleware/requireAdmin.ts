@@ -1,5 +1,6 @@
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 import { AdminModel, type AdminDocument } from '../models/admin.model';
+import { findMobileAdmin } from '../services/adminMobileSession.service';
 import { HttpError } from './httpError';
 
 declare module 'express-session' {
@@ -9,13 +10,29 @@ declare module 'express-session' {
   }
 }
 
-export const requireAdmin: RequestHandler = async (req, res, next) => {
+async function cookieAdmin(req: Request): Promise<AdminDocument | null> {
   const { adminId, adminSessionVersion } = req.session;
   const admin = adminId ? await AdminModel.findById(adminId) : null;
-  if (!admin || admin.sessionVersion !== adminSessionVersion) {
-    throw new HttpError(401, 'Log in to continue.');
+  return admin?.sessionVersion === adminSessionVersion ? admin : null;
+}
+
+// The website uses its cookie and the app sends a bearer token. Any Authorization header means
+// the token alone decides, so a cookie can never rescue a bad one. Customer tokens live in a
+// separate collection, so they are never found here.
+export const requireAdmin: RequestHandler = async (req, res, next) => {
+  const header = req.get('authorization');
+  if (header === undefined) {
+    const admin = await cookieAdmin(req);
+    if (!admin) throw new HttpError(401, 'Log in to continue.');
+    res.locals.admin = admin;
+    next();
+    return;
   }
-  res.locals.admin = admin;
+  const token = /^Bearer ([\w-]+)$/.exec(header)?.[1];
+  const found = token ? await findMobileAdmin(token) : null;
+  if (!found) throw new HttpError(401, 'Log in to continue.');
+  res.locals.admin = found.admin;
+  res.locals.adminMobileSession = found.session;
   next();
 };
 

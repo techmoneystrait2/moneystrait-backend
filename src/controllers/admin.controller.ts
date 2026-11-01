@@ -3,13 +3,21 @@ import mongoose from 'mongoose';
 import { SESSION_COOKIE } from '../config/session';
 import { HttpError } from '../middleware/httpError';
 import { AdminModel, type AdminDocument } from '../models/admin.model';
+import type { AdminMobileSessionDocument } from '../models/adminMobileSession.model';
 import { ApplicationModel } from '../models/application.model';
 import { PasswordResetModel } from '../models/passwordReset.model';
 import { UserModel } from '../models/user.model';
+import {
+  endAdminMobileSession,
+  endAllAdminMobileSessions,
+  refreshAdminMobileSession,
+  startAdminMobileSession,
+} from '../services/adminMobileSession.service';
 import { notifyAccountDeleted } from '../services/email.service';
 import { endAllMobileSessions } from '../services/mobileSession.service';
 import { checkPassword, hashPassword } from '../services/password.service';
 import { endSession, saveSession, startSession } from '../services/session.service';
+import { toApplicationDetail } from './adminApplication.controller';
 
 const PAGE_SIZE = 20;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -43,7 +51,7 @@ function toCustomer(user: CustomerRow) {
     id: String(user._id),
     name: user.name,
     email: user.email,
-    signIn: user.googleId ? 'Google' : user.passwordHash ? 'Password' : 'None',
+    signIn: user.googleId && user.passwordHash ? 'Google and password' : user.googleId ? 'Google' : user.passwordHash ? 'Password' : 'None',
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
@@ -53,18 +61,38 @@ function findCustomers(filter: object) {
   return UserModel.find(filter).select('+passwordHash').sort({ createdAt: -1 }).lean<CustomerRow[]>();
 }
 
-export const adminLogin: RequestHandler = async (req, res) => {
-  const { username, password } = req.body;
+async function checkAdminLogin(username: string, password: string): Promise<AdminDocument> {
   const admin = await AdminModel.findOne({ username }).select('+passwordHash');
   const matches = await checkPassword(password, admin?.passwordHash);
   if (!admin || !matches) throw new HttpError(401, 'Username or password is incorrect.');
+  return admin;
+}
+
+export const adminLogin: RequestHandler = async (req, res) => {
+  const admin = await checkAdminLogin(req.body.username, req.body.password);
   await startSession(req, { adminId: admin.id, adminSessionVersion: admin.sessionVersion });
   res.json({ admin: toPublicAdmin(admin) });
 };
 
+export const mobileAdminLogin: RequestHandler = async (req, res) => {
+  const admin = await checkAdminLogin(req.body.username, req.body.password);
+  res.json({ admin: toPublicAdmin(admin), ...(await startAdminMobileSession(admin)) });
+};
+
+export const mobileAdminRefresh: RequestHandler = async (req, res) => {
+  const tokens = await refreshAdminMobileSession(req.body.refreshToken);
+  if (!tokens) throw new HttpError(401, 'Log in to continue.');
+  res.json(tokens);
+};
+
 export const adminLogout: RequestHandler = async (req, res) => {
-  await endSession(req);
-  res.clearCookie(SESSION_COOKIE);
+  const session: AdminMobileSessionDocument | undefined = res.locals.adminMobileSession;
+  if (session) {
+    await endAdminMobileSession(session);
+  } else {
+    await endSession(req);
+    res.clearCookie(SESSION_COOKIE);
+  }
   res.status(204).end();
 };
 
@@ -110,6 +138,15 @@ export const listCustomers: RequestHandler = async (req, res) => {
     pages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
     total,
   });
+};
+
+export const getCustomer: RequestHandler = async (req, res) => {
+  const id = String(req.params.id);
+  if (!mongoose.isValidObjectId(id)) throw new HttpError(404, 'Customer not found.');
+  const user = await UserModel.findById(id).select('+passwordHash').lean<CustomerRow | null>();
+  if (!user) throw new HttpError(404, 'Customer not found.');
+  const applications = await ApplicationModel.find({ user: id }).populate('user', 'name email').sort({ createdAt: -1 });
+  res.json({ customer: toCustomer(user), applications: applications.map(toApplicationDetail) });
 };
 
 export const deleteCustomer: RequestHandler = async (req, res) => {
@@ -160,7 +197,8 @@ export const deleteAdmin: RequestHandler = async (req, res) => {
   const target = await AdminModel.findById(id);
   if (!target) throw new HttpError(404, 'Admin not found.');
   if (target.role !== 'admin') throw new HttpError(403, 'The super admin can’t be deleted.');
-  // Their sessions stop working because requireAdmin can no longer find the account.
+  // Their web sessions stop working because requireAdmin can no longer find the account.
+  await endAllAdminMobileSessions(id);
   await target.deleteOne();
   res.status(204).end();
 };
@@ -181,7 +219,14 @@ export const updateCredentials: RequestHandler = async (req, res) => {
     if (isDuplicateKey(err)) throw new HttpError(409, 'That username is taken.');
     throw err;
   }
-  req.session.adminSessionVersion = admin.sessionVersion;
-  await saveSession(req);
+  const session: AdminMobileSessionDocument | undefined = res.locals.adminMobileSession;
+  await endAllAdminMobileSessions(admin.id, session);
+  if (session) {
+    session.sessionVersion = admin.sessionVersion;
+    await session.save();
+  } else {
+    req.session.adminSessionVersion = admin.sessionVersion;
+    await saveSession(req);
+  }
   res.json({ admin: toPublicAdmin(admin) });
 };
