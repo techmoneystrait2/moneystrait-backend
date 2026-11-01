@@ -156,7 +156,7 @@ describe('forms in the admin panel', () => {
     expect((await adminGet('/api/admin/leads', accessToken)).status).toBe(401);
   });
 
-  it('shows who sent each form, and filters by it', async () => {
+  it('shows who sent each form', async () => {
     const token = await adminToken();
     const { accessToken } = await signUp();
     await website(form);
@@ -164,11 +164,21 @@ describe('forms in the admin panel', () => {
 
     const all = await adminGet('/api/admin/leads', token);
     expect(all.body.total).toBe(2);
-    const customers = await adminGet('/api/admin/leads?submittedBy=customer', token);
-    expect(customers.body.leads).toHaveLength(1);
-    expect(customers.body.leads[0]).toMatchObject({ submittedBy: 'customer', customer: { name: 'Real Customer', email: 'real@example.com' }, accountDeleted: false });
-    const visitors = await adminGet('/api/admin/leads?submittedBy=visitor', token);
-    expect(visitors.body.leads[0]).toMatchObject({ submittedBy: 'visitor', customer: null, accountDeleted: false });
+    const [newest, oldest] = all.body.leads;
+    expect(newest).toMatchObject({ submittedBy: 'customer', customer: { name: 'Real Customer', email: 'real@example.com' }, accountDeleted: false });
+    expect(oldest).toMatchObject({ submittedBy: 'visitor', customer: null, accountDeleted: false });
+  });
+
+  it('finds forms by name or email, in any case, and treats the search as plain text', async () => {
+    const token = await adminToken();
+    await website(form);
+    await website({ ...form, name: 'Lee Other', email: 'lee@other.example' });
+    const search = async (text: string) => (await adminGet(`/api/admin/leads?search=${encodeURIComponent(text)}`, token)).body.leads.map((lead: { name: string }) => lead.name);
+    expect(await search('PAT')).toEqual(['Pat Doe']);
+    expect(await search('lee@other')).toEqual(['Lee Other']);
+    expect(await search('example')).toHaveLength(2);
+    expect(await search('.*')).toEqual([]);
+    expect(await search('nobody')).toEqual([]);
   });
 
   it('still marks a customer whose account was deleted', async () => {

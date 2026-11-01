@@ -68,6 +68,13 @@ async function checkAdminLogin(username: string, password: string): Promise<Admi
   return admin;
 }
 
+export function nameOrEmailFilter(query: unknown) {
+  const search = typeof query === 'string' ? query.trim().slice(0, 100) : '';
+  // Escaped, so a search is plain text and never a pattern.
+  const pattern = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return pattern ? { $or: [{ name: { $regex: pattern, $options: 'i' } }, { email: { $regex: pattern, $options: 'i' } }] } : {};
+}
+
 export const adminLogin: RequestHandler = async (req, res) => {
   const admin = await checkAdminLogin(req.body.username, req.body.password);
   await startSession(req, { adminId: admin.id, adminSessionVersion: admin.sessionVersion });
@@ -120,12 +127,7 @@ export const overview: RequestHandler = async (_req, res) => {
 
 export const listCustomers: RequestHandler = async (req, res) => {
   const page = Math.max(1, Number.parseInt(String(req.query.page), 10) || 1);
-  const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 100) : '';
-  // Escaped, so a search is plain text and never a pattern.
-  const pattern = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const filter = pattern
-    ? { $or: [{ name: { $regex: pattern, $options: 'i' } }, { email: { $regex: pattern, $options: 'i' } }] }
-    : {};
+  const filter = nameOrEmailFilter(req.query.search);
   const [total, customers] = await Promise.all([
     UserModel.countDocuments(filter),
     findCustomers(filter)

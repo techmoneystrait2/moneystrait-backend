@@ -1,8 +1,9 @@
 import type { RequestHandler } from 'express';
 import mongoose from 'mongoose';
 import { HttpError } from '../middleware/httpError';
-import { LEAD_SENDERS, type LeadDocument, LeadModel } from '../models/lead.model';
+import { type LeadDocument, LeadModel } from '../models/lead.model';
 import type { UserDocument } from '../models/user.model';
+import { nameOrEmailFilter } from './admin.controller';
 
 const PAGE_SIZE = 20;
 
@@ -35,8 +36,7 @@ function toAdminLead(lead: LeadDocument) {
 
 export const listLeads: RequestHandler = async (req, res) => {
   const page = Math.max(1, Number.parseInt(String(req.query.page), 10) || 1);
-  const submittedBy = LEAD_SENDERS.find((value) => value === req.query.submittedBy);
-  const filter = submittedBy ? { submittedBy } : {};
+  const filter = nameOrEmailFilter(req.query.search);
   const [total, leads] = await Promise.all([
     LeadModel.countDocuments(filter),
     LeadModel.find(filter)
