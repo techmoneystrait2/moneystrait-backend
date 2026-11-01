@@ -10,10 +10,21 @@ declare module 'express-session' {
   }
 }
 
-async function cookieUser(req: Request): Promise<UserDocument | null> {
+export async function cookieUser(req: Request): Promise<UserDocument | null> {
   const { userId, sessionVersion } = req.session;
   const user = userId ? await UserModel.findById(userId) : null;
   return user?.sessionVersion === sessionVersion ? user : null;
+}
+
+// For public routes that want to know who is asking. No header means a visitor. A bad token is
+// refused, so the app refreshes it instead of a customer being counted as a visitor.
+export async function bearerUser(req: Request): Promise<UserDocument | null> {
+  const header = req.get('authorization');
+  if (header === undefined) return null;
+  const token = /^Bearer ([\w-]+)$/.exec(header)?.[1];
+  const found = token ? await findMobileUser(token) : null;
+  if (!found) throw new HttpError(401, 'Log in to continue.');
+  return found.user;
 }
 
 // The website uses its cookie and the app sends a bearer token. Any Authorization header means

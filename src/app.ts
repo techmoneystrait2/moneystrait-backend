@@ -4,14 +4,17 @@ import { env } from './config/env';
 import { createSessionMiddleware } from './config/session';
 import { errorHandler, notFound } from './middleware/errorHandler';
 import { originCheck } from './middleware/originCheck';
+import { createLeadRateLimiter } from './middleware/rateLimiter';
 import { requireAuth } from './middleware/requireAuth';
 import { createAdminRoutes, createMobileAdminRoutes } from './routes/admin.routes';
 import { createApplicationRoutes } from './routes/application.routes';
 import { createMobileAuthRoutes, createProtectedAuthRoutes, createPublicAuthRoutes } from './routes/auth.routes';
+import { createLeadRoutes, createMobileLeadRoutes } from './routes/lead.routes';
 
 const DEFAULT_AUTH_LIMIT = 10;
+const DEFAULT_LEAD_LIMIT = 5;
 
-export function createApp({ authLimit = DEFAULT_AUTH_LIMIT } = {}) {
+export function createApp({ authLimit = DEFAULT_AUTH_LIMIT, leadLimit = DEFAULT_LEAD_LIMIT } = {}) {
   const app = express();
   app.set('trust proxy', env.TRUST_PROXY_HOPS);
 
@@ -22,6 +25,11 @@ export function createApp({ authLimit = DEFAULT_AUTH_LIMIT } = {}) {
 
   app.use('/api/auth', createPublicAuthRoutes(authLimit));
   app.use('/api/mobile/auth', createMobileAuthRoutes(authLimit));
+
+  const leadLimiter = createLeadRateLimiter(leadLimit);
+  app.use('/api/leads', createLeadRoutes(leadLimiter));
+  app.use('/api/mobile/leads', createMobileLeadRoutes(leadLimiter));
+
   app.use('/api/mobile/admin', createMobileAdminRoutes(authLimit));
   app.use('/api/admin', createAdminRoutes(authLimit));
 

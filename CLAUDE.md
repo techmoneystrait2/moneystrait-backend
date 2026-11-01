@@ -44,6 +44,8 @@ npm test
 
 ## Talk to us
 
+Built so far: the form saves a `Lead` through `POST /api/leads` (website) or `POST /api/mobile/leads` (app), both public on purpose, with the honeypot, the restricted list and 5 forms an hour per IP address. `submittedBy` is `customer` only when the session or token proves it, never from the form. Admins read and delete leads at `/api/admin/leads`. Booking, CRM, Turnstile and the emails below are still to come.
+
 1. Re-check every field on the server, plus Turnstile, a honeypot, the restricted list and a limit of 5 submissions per hour per IP address.
 2. If "Registered in" is restricted, create no lead and log only the country and time.
 3. Book the slot through the scheduling API. If it was taken, return the next free slots so the form keeps every answer.

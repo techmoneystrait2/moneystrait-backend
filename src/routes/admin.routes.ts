@@ -27,6 +27,7 @@ import {
   removeApplication,
   restoreApplication,
 } from '../controllers/adminApplication.controller';
+import { deleteLead, getLead, listLeads } from '../controllers/adminLead.controller';
 import { notFound } from '../middleware/errorHandler';
 import { createAuthRateLimiter } from '../middleware/rateLimiter';
 import { requireAdmin, requireSuperadmin } from '../middleware/requireAdmin';
@@ -59,6 +60,9 @@ export function createAdminRoutes(authLimit: number): Router {
   router.get('/overview', overview);
   router.get('/customers', listCustomers);
   router.get('/customers/:id', getCustomer);
+  router.get('/leads', listLeads);
+  router.get('/leads/:id', getLead);
+  router.delete('/leads/:id', deleteLead);
   router.get('/admins', listAdmins);
   router.get('/applications', listApplications);
   router.get('/applications/:id', getApplication);
