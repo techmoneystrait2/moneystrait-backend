@@ -7,7 +7,7 @@ import { originCheck } from './middleware/originCheck';
 import { requireAuth } from './middleware/requireAuth';
 import { createAdminRoutes } from './routes/admin.routes';
 import { createApplicationRoutes } from './routes/application.routes';
-import { createProtectedAuthRoutes, createPublicAuthRoutes } from './routes/auth.routes';
+import { createMobileAuthRoutes, createProtectedAuthRoutes, createPublicAuthRoutes } from './routes/auth.routes';
 
 const DEFAULT_AUTH_LIMIT = 10;
 
@@ -21,11 +21,12 @@ export function createApp({ authLimit = DEFAULT_AUTH_LIMIT } = {}) {
   app.use(createSessionMiddleware());
 
   app.use('/api/auth', createPublicAuthRoutes(authLimit));
+  app.use('/api/mobile/auth', createMobileAuthRoutes(authLimit));
   app.use('/api/admin', createAdminRoutes(authLimit));
 
   // Deny by default: everything below this line needs a valid session, including unknown paths.
   app.use(requireAuth);
-  app.use('/api/auth', createProtectedAuthRoutes());
+  app.use('/api/auth', createProtectedAuthRoutes(authLimit));
   app.use('/api/application', createApplicationRoutes(authLimit));
   app.use(notFound);
 

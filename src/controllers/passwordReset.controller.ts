@@ -4,6 +4,7 @@ import { HttpError } from '../middleware/httpError';
 import { PasswordResetModel } from '../models/passwordReset.model';
 import { UserModel } from '../models/user.model';
 import { isEmailConfigured, sendPasswordResetCode } from '../services/email.service';
+import { endAllMobileSessions } from '../services/mobileSession.service';
 import { checkPassword, hashPassword } from '../services/password.service';
 
 const CODE_MINUTES = 5;
@@ -61,5 +62,6 @@ export const resetPassword: RequestHandler = async (req, res) => {
     { $set: { passwordHash: await hashPassword(password) }, $inc: { sessionVersion: 1 } },
   );
   await PasswordResetModel.deleteOne({ user: user.id });
+  await endAllMobileSessions(user.id);
   res.status(204).end();
 };

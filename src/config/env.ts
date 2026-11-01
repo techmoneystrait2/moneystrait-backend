@@ -15,6 +15,8 @@ const schema = z.object({
   MONGODB_URI: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
   GOOGLE_CLIENT_ID: z.string().min(1),
+  // Comma-separated client IDs for the mobile app, once it exists.
+  GOOGLE_MOBILE_CLIENT_IDS: optional,
   FRONTEND_ORIGIN: z.url(),
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0),
   SMTP_HOST: optional,

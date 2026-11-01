@@ -1,10 +1,16 @@
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler, Response } from 'express';
 import { SESSION_COOKIE } from '../config/session';
 import { HttpError } from '../middleware/httpError';
 import { UserModel, type UserDocument } from '../models/user.model';
 import { type GoogleProfile, verifyGoogleCredential } from '../services/google.service';
+import {
+  endAllMobileSessions,
+  endMobileSession,
+  refreshMobileSession,
+  startMobileSession,
+} from '../services/mobileSession.service';
 import { checkPassword, hashPassword } from '../services/password.service';
-import { endSession, startSession } from '../services/session.service';
+import { endSession, saveSession, startSession } from '../services/session.service';
 
 function isDuplicateKey(err: unknown): boolean {
   return (err as { code?: number }).code === 11000;
@@ -14,33 +20,44 @@ function toPublicUser(user: UserDocument) {
   return { id: user.id, name: user.name, email: user.email };
 }
 
-function sessionFor(user: UserDocument) {
-  return { userId: user.id as string, sessionVersion: user.sessionVersion };
+// How a signed-in customer is handed their login: a cookie for the website, tokens for the app.
+type Deliver = (req: Request, res: Response, user: UserDocument, status: number) => Promise<void>;
+
+const deliverCookie: Deliver = async (req, res, user, status) => {
+  await startSession(req, { userId: user.id, sessionVersion: user.sessionVersion });
+  res.status(status).json({ user: toPublicUser(user) });
+};
+
+const deliverTokens: Deliver = async (_req, res, user, status) => {
+  const tokens = await startMobileSession(user);
+  res.status(status).json({ user: toPublicUser(user), ...tokens });
+};
+
+function signupWith(deliver: Deliver): RequestHandler {
+  return async (req, res) => {
+    const { name, email, password } = req.body;
+    const passwordHash = await hashPassword(password);
+    try {
+      const user = await UserModel.create({ name, email, passwordHash });
+      await deliver(req, res, user, 201);
+    } catch (err) {
+      if (isDuplicateKey(err)) throw new HttpError(409, 'Use a different email, or log in.');
+      throw err;
+    }
+  };
 }
 
-export const signup: RequestHandler = async (req, res) => {
-  const { name, email, password } = req.body;
-  const passwordHash = await hashPassword(password);
-  try {
-    const user = await UserModel.create({ name, email, passwordHash });
-    await startSession(req, sessionFor(user));
-    res.status(201).json({ user: toPublicUser(user) });
-  } catch (err) {
-    if (isDuplicateKey(err)) throw new HttpError(409, 'Use a different email, or log in.');
-    throw err;
-  }
-};
-
-export const login: RequestHandler = async (req, res) => {
-  const { email, password } = req.body;
-  const user = await UserModel.findOne({ email }).select('+passwordHash');
-  const matches = await checkPassword(password, user?.passwordHash);
-  if (!user?.passwordHash || !matches) {
-    throw new HttpError(401, 'Email or password is incorrect.');
-  }
-  await startSession(req, sessionFor(user));
-  res.json({ user: toPublicUser(user) });
-};
+function loginWith(deliver: Deliver): RequestHandler {
+  return async (req, res) => {
+    const { email, password } = req.body;
+    const user = await UserModel.findOne({ email }).select('+passwordHash');
+    const matches = await checkPassword(password, user?.passwordHash);
+    if (!user?.passwordHash || !matches) {
+      throw new HttpError(401, 'Email or password is incorrect.');
+    }
+    await deliver(req, res, user, 200);
+  };
+}
 
 async function findOrCreateGoogleUser(profile: GoogleProfile): Promise<UserDocument> {
   const { googleId, email, name } = profile;
@@ -58,22 +75,75 @@ async function findOrCreateGoogleUser(profile: GoogleProfile): Promise<UserDocum
     { returnDocument: 'after' },
   );
   if (!linked) throw new HttpError(409, 'Try again.');
+  await endAllMobileSessions(linked.id);
   return linked;
 }
 
-export const google: RequestHandler = async (req, res) => {
-  const profile = await verifyGoogleCredential(req.body.credential);
-  if (!profile?.emailVerified) throw new HttpError(401, 'Google sign-in failed.');
-  const user = await findOrCreateGoogleUser(profile);
-  await startSession(req, sessionFor(user));
+function googleWith(deliver: Deliver): RequestHandler {
+  return async (req, res) => {
+    const profile = await verifyGoogleCredential(req.body.credential);
+    if (!profile?.emailVerified) throw new HttpError(401, 'Google sign-in failed.');
+    const user = await findOrCreateGoogleUser(profile);
+    await deliver(req, res, user, 200);
+  };
+}
+
+export const signup = signupWith(deliverCookie);
+export const login = loginWith(deliverCookie);
+export const google = googleWith(deliverCookie);
+
+export const mobileSignup = signupWith(deliverTokens);
+export const mobileLogin = loginWith(deliverTokens);
+export const mobileGoogle = googleWith(deliverTokens);
+
+export const mobileRefresh: RequestHandler = async (req, res) => {
+  const tokens = await refreshMobileSession(req.body.refreshToken);
+  if (!tokens) throw new HttpError(401, 'Log in to continue.');
+  res.json(tokens);
+};
+
+export const me: RequestHandler = async (_req, res) => {
+  const user: UserDocument = res.locals.user;
+  const hasPassword = await UserModel.exists({ _id: user.id, passwordHash: { $exists: true } });
+  res.json({ user: { ...toPublicUser(user), hasPassword: Boolean(hasPassword) } });
+};
+
+export const updateProfile: RequestHandler = async (req, res) => {
+  const user: UserDocument = res.locals.user;
+  user.name = req.body.name;
+  await user.save();
   res.json({ user: toPublicUser(user) });
 };
 
-export const me: RequestHandler = (_req, res) => {
-  res.json({ user: toPublicUser(res.locals.user) });
+export const changePassword: RequestHandler = async (req, res) => {
+  const { currentPassword, password } = req.body;
+  const user = await UserModel.findById(res.locals.user.id).select('+passwordHash');
+  if (!user?.passwordHash || !(await checkPassword(currentPassword, user.passwordHash))) {
+    throw new HttpError(400, 'Your current password is incorrect.');
+  }
+  user.passwordHash = await hashPassword(password);
+  // Ends the customer's other sessions; this one carries on with the new version.
+  user.sessionVersion += 1;
+  await user.save();
+
+  const mobileSession = res.locals.mobileSession;
+  await endAllMobileSessions(user.id, mobileSession);
+  if (mobileSession) {
+    mobileSession.sessionVersion = user.sessionVersion;
+    await mobileSession.save();
+  } else {
+    req.session.sessionVersion = user.sessionVersion;
+    await saveSession(req);
+  }
+  res.status(204).end();
 };
 
 export const logout: RequestHandler = async (req, res) => {
+  if (res.locals.mobileSession) {
+    await endMobileSession(res.locals.mobileSession);
+    res.status(204).end();
+    return;
+  }
   await endSession(req);
   res.clearCookie(SESSION_COOKIE);
   res.status(204).end();

@@ -7,6 +7,7 @@ import { ApplicationModel } from '../models/application.model';
 import { PasswordResetModel } from '../models/passwordReset.model';
 import { UserModel } from '../models/user.model';
 import { notifyAccountDeleted } from '../services/email.service';
+import { endAllMobileSessions } from '../services/mobileSession.service';
 import { checkPassword, hashPassword } from '../services/password.service';
 import { endSession, saveSession, startSession } from '../services/session.service';
 
@@ -126,7 +127,8 @@ export const deleteCustomer: RequestHandler = async (req, res) => {
     { status: 'removed', removedAt: new Date(), removedBy: admin.username },
   );
   await PasswordResetModel.deleteMany({ user: id });
-  // Their sessions stop working because requireAuth can no longer find the account.
+  await endAllMobileSessions(id);
+  // Their web sessions stop working because requireAuth can no longer find the account.
   await user.deleteOne();
 
   res.json({ emailSent: await notifyAccountDeleted(email) });
