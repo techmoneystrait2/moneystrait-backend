@@ -57,6 +57,7 @@ describe('the catalogue', () => {
 describe('managing countries', () => {
   it('starts with every country live, for anyone to read', async () => {
     expect(await live()).toHaveLength(PAYMENT_COUNTRIES.length);
+    expect((await request(app).get('/api/countries')).body.restricted).toContain('Iran');
   });
 
   it('needs an admin', async () => {

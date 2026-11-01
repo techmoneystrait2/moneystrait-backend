@@ -1,5 +1,6 @@
 import type { RequestHandler } from 'express';
 import { PAYMENT_COUNTRIES } from '../config/paymentCountries';
+import { RESTRICTED } from '../config/restricted';
 import { RemovedCountryModel } from '../models/removedCountry.model';
 
 async function removedCodes(): Promise<Set<string>> {
@@ -10,7 +11,7 @@ async function removedCodes(): Promise<Set<string>> {
 // Public: the Countries page lists only what admins have left live.
 export const listLiveCountries: RequestHandler = async (_req, res) => {
   const removed = await removedCodes();
-  res.json({ countries: PAYMENT_COUNTRIES.filter((country) => !removed.has(country.code)) });
+  res.json({ countries: PAYMENT_COUNTRIES.filter((country) => !removed.has(country.code)), restricted: RESTRICTED });
 };
 
 async function sendAdminList(res: Parameters<RequestHandler>[1]) {
