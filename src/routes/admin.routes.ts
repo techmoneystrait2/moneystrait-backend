@@ -12,11 +12,14 @@ import {
   updateCredentials,
 } from '../controllers/admin.controller';
 import {
+  acceptRfiResponse,
   approveApplication,
+  askForInformation,
   deleteApplicationForever,
   getApplication,
   listApplications,
   rejectApplication,
+  rejectRfiResponse,
   removeApplication,
   restoreApplication,
 } from '../controllers/adminApplication.controller';
@@ -29,6 +32,7 @@ import {
   createAdminSchema,
   updateCredentialsSchema,
 } from '../validators/admin.validators';
+import { rfiQuestionSchema } from '../validators/application.validators';
 
 export function createAdminRoutes(authLimit: number): Router {
   const router = Router();
@@ -45,6 +49,9 @@ export function createAdminRoutes(authLimit: number): Router {
   router.get('/applications/:id', getApplication);
   router.post('/applications/:id/approve', approveApplication);
   router.post('/applications/:id/reject', rejectApplication);
+  router.post('/applications/:id/rfis', validateBody(rfiQuestionSchema), askForInformation);
+  router.post('/applications/:id/rfis/:rfiId/accept', acceptRfiResponse);
+  router.post('/applications/:id/rfis/:rfiId/reject', rejectRfiResponse);
   router.delete('/applications/:id', removeApplication);
   router.post('/applications/:id/restore', restoreApplication);
   router.delete('/applications/:id/permanent', deleteApplicationForever);

@@ -32,6 +32,10 @@ const bankAccount = z.object({
   accountNumber: z.string().trim().min(4).max(40),
 });
 
+export const rfiQuestionSchema = z.object({ question: z.string().trim().min(3).max(1000) });
+
+export const rfiAnswerSchema = z.object({ answer: z.string().trim().min(1).max(2000) });
+
 export const applicationSchema = z.object({
   company: z.object({
     country: oneOf(OPTIONS.registrationCountries),

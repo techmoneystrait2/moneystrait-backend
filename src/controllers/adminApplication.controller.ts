@@ -9,6 +9,7 @@ import {
   type ApplicationStatus,
 } from '../models/application.model';
 import type { UserDocument } from '../models/user.model';
+import { notifyInformationRequest } from '../services/email.service';
 
 const PAGE_SIZE = 20;
 
@@ -30,6 +31,8 @@ function summarise(application: ApplicationDocument) {
     reviewedBy: application.reviewedBy,
     removedAt: application.removedAt,
     removedBy: application.removedBy,
+    rfisWaiting: application.rfis.filter((rfi) => rfi.status === 'waiting').length,
+    rfisToReview: application.rfis.filter((rfi) => rfi.status === 'answered').length,
   };
 }
 
@@ -65,16 +68,76 @@ async function findApplication(id: string) {
 export const getApplication: RequestHandler = async (req, res) => {
   const application = await findApplication(String(req.params.id));
   const attempts = await ApplicationModel.countDocuments({ user: application.populated('user') });
-  res.json({ application: { ...summarise(application), answers: application.answers, attempts } });
+  const rfis = application.rfis.map((rfi) => ({
+    id: String(rfi._id),
+    question: rfi.question,
+    status: rfi.status,
+    askedBy: rfi.askedBy,
+    askedAt: rfi.askedAt,
+    responses: rfi.responses,
+  }));
+  res.json({ application: { ...summarise(application), answers: application.answers, attempts, rfis } });
 };
+
+const OPEN_RFI = { $elemMatch: { status: { $in: ['waiting', 'answered'] } } };
+
+export const askForInformation: RequestHandler = async (req, res) => {
+  const admin: AdminDocument = res.locals.admin;
+  const application = await findApplication(String(req.params.id));
+  const updated = await ApplicationModel.findOneAndUpdate(
+    { _id: application.id, status: 'in_review', 'rfis.19': { $exists: false } },
+    { $push: { rfis: { question: req.body.question, askedBy: admin.username, askedAt: new Date() } } },
+  );
+  if (!updated) throw new HttpError(409, 'This application can’t take a request right now.');
+  const customer = application.user as unknown as UserDocument | null;
+  const emailSent = customer ? await notifyInformationRequest(customer.email) : false;
+  res.status(201).json({ emailSent });
+};
+
+function decideRfiResponse(decision: 'accepted' | 'rejected'): RequestHandler {
+  return async (req, res) => {
+    const admin: AdminDocument = res.locals.admin;
+    const application = await findApplication(String(req.params.id));
+    const rfiId = String(req.params.rfiId);
+    if (!mongoose.isValidObjectId(rfiId)) throw new HttpError(404, 'Request not found.');
+    const objectId = new mongoose.Types.ObjectId(rfiId);
+
+    // A rejected response reopens the question, so the customer answers it again.
+    const result = await ApplicationModel.updateOne(
+      { _id: application.id, status: 'in_review', rfis: { $elemMatch: { _id: objectId, status: 'answered' } } },
+      {
+        $set: {
+          'rfis.$[rfi].status': decision === 'accepted' ? 'accepted' : 'waiting',
+          'rfis.$[rfi].responses.$[response].decision': decision,
+          'rfis.$[rfi].responses.$[response].decidedBy': admin.username,
+          'rfis.$[rfi].responses.$[response].decidedAt': new Date(),
+        },
+      },
+      { arrayFilters: [{ 'rfi._id': objectId }, { 'response.decision': 'pending' }] },
+    );
+    if (result.modifiedCount === 0) throw new HttpError(409, 'This response has already been decided.');
+
+    const customer = application.user as unknown as UserDocument | null;
+    const emailSent = decision === 'rejected' && customer ? await notifyInformationRequest(customer.email) : false;
+    res.json({ emailSent });
+  };
+}
+
+export const acceptRfiResponse = decideRfiResponse('accepted');
+export const rejectRfiResponse = decideRfiResponse('rejected');
 
 function reviewApplication(status: ApplicationStatus): RequestHandler {
   return async (req, res) => {
     const admin: AdminDocument = res.locals.admin;
-    const { id } = await findApplication(String(req.params.id));
+    const application = await findApplication(String(req.params.id));
+    const { id } = application;
+    const hasOpenRfi = application.rfis.some((rfi) => rfi.status !== 'accepted');
+    if (status === 'approved' && application.status === 'in_review' && hasOpenRfi) {
+      throw new HttpError(409, 'Accept or reject every response before approving.');
+    }
     // Matches only while in review, so two admins can't both decide the same application.
     const decided = await ApplicationModel.findOneAndUpdate(
-      { _id: id, status: 'in_review' },
+      { _id: id, status: 'in_review', ...(status === 'approved' && { rfis: { $not: OPEN_RFI } }) },
       { status, reviewedAt: new Date(), reviewedBy: admin.username },
       { returnDocument: 'after' },
     ).populate('user', 'name email');

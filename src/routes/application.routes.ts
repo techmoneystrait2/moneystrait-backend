@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { getApplicationOptions, getMyApplication, submitApplication } from '../controllers/application.controller';
+import { answerRfi, getApplicationOptions, getMyApplication, submitApplication } from '../controllers/application.controller';
 import { createAuthRateLimiter } from '../middleware/rateLimiter';
 import { validateBody } from '../middleware/validate';
-import { applicationSchema } from '../validators/application.validators';
+import { applicationSchema, rfiAnswerSchema } from '../validators/application.validators';
 
 // Mounted behind requireAuth: a customer only ever reaches their own application.
 export function createApplicationRoutes(submitLimit: number): Router {
@@ -10,5 +10,6 @@ export function createApplicationRoutes(submitLimit: number): Router {
   router.get('/', getMyApplication);
   router.get('/options', getApplicationOptions);
   router.post('/', createAuthRateLimiter(submitLimit), validateBody(applicationSchema), submitApplication);
+  router.post('/rfis/:rfiId', validateBody(rfiAnswerSchema), answerRfi);
   return router;
 }

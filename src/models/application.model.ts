@@ -4,6 +4,26 @@ import { type HydratedDocument, model, Schema, Types } from 'mongoose';
 export const APPLICATION_STATUSES = ['in_review', 'approved', 'rejected', 'removed'] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
+export const RFI_STATUSES = ['waiting', 'answered', 'accepted'] as const;
+
+export interface RfiResponse {
+  answer: string;
+  answeredAt: Date;
+  decision: 'pending' | 'accepted' | 'rejected';
+  decidedBy?: string;
+  decidedAt?: Date;
+}
+
+// A request for information: an admin's question, and every answer the customer gave to it.
+export interface Rfi {
+  _id: Types.ObjectId;
+  question: string;
+  askedBy: string;
+  askedAt: Date;
+  status: (typeof RFI_STATUSES)[number];
+  responses: RfiResponse[];
+}
+
 export interface Application {
   user: Types.ObjectId;
   status: ApplicationStatus;
@@ -16,9 +36,29 @@ export interface Application {
   removedBy?: string;
   // Kept once the customer's account is deleted, so the record still says whose it was.
   deletedCustomer?: { name: string; email: string };
+  rfis: Rfi[];
 }
 
 export type ApplicationDocument = HydratedDocument<Application>;
+
+const rfiResponseSchema = new Schema<RfiResponse>(
+  {
+    answer: { type: String, required: true },
+    answeredAt: { type: Date, required: true },
+    decision: { type: String, enum: ['pending', 'accepted', 'rejected'], required: true, default: 'pending' },
+    decidedBy: String,
+    decidedAt: Date,
+  },
+  { _id: false },
+);
+
+const rfiSchema = new Schema<Rfi>({
+  question: { type: String, required: true },
+  askedBy: { type: String, required: true },
+  askedAt: { type: Date, required: true },
+  status: { type: String, enum: RFI_STATUSES, required: true, default: 'waiting' },
+  responses: { type: [rfiResponseSchema], default: [] },
+});
 
 // Every submission is its own record, so a rejected attempt stays in the history.
 const applicationSchema = new Schema<Application>(
@@ -31,6 +71,7 @@ const applicationSchema = new Schema<Application>(
     removedAt: Date,
     removedBy: String,
     deletedCustomer: { name: String, email: String },
+    rfis: { type: [rfiSchema], default: [] },
   },
   { timestamps: true },
 );

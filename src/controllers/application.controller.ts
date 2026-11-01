@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import mongoose from 'mongoose';
 import { APPLICATION_OPTIONS } from '../config/applicationOptions';
 import { RESTRICTED } from '../config/restricted';
 import { HttpError } from '../middleware/httpError';
@@ -27,8 +28,35 @@ export const getMyApplication: RequestHandler = async (_req, res) => {
       answers: current.answers,
       // The reviewer is internal, and a decision never comes with a reason.
       reviewedAt: current.reviewedAt,
+      rfis: current.rfis.map((rfi) => ({
+        id: String(rfi._id),
+        question: rfi.question,
+        status: rfi.status,
+        askedAt: rfi.askedAt,
+        answer: rfi.status === 'waiting' ? undefined : rfi.responses.at(-1)?.answer,
+        askedAgain: rfi.status === 'waiting' && rfi.responses.length > 0,
+      })),
     },
   });
+};
+
+export const answerRfi: RequestHandler = async (req, res) => {
+  const user: UserDocument = res.locals.user;
+  const rfiId = String(req.params.rfiId);
+  if (!mongoose.isValidObjectId(rfiId)) throw new HttpError(404, 'Request not found.');
+  const answered = await ApplicationModel.findOneAndUpdate(
+    {
+      user: user.id,
+      status: 'in_review',
+      rfis: { $elemMatch: { _id: new mongoose.Types.ObjectId(rfiId), status: 'waiting' } },
+    },
+    {
+      $set: { 'rfis.$.status': 'answered' },
+      $push: { 'rfis.$.responses': { answer: req.body.answer, answeredAt: new Date() } },
+    },
+  );
+  if (!answered) throw new HttpError(409, 'This request can’t be answered any more.');
+  res.status(204).end();
 };
 
 export const submitApplication: RequestHandler = async (req, res) => {
